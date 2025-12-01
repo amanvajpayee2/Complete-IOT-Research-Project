@@ -1,215 +1,239 @@
-README.md (copy-paste this into your repo root)
-# Face Recognition + MQTT Servo Control + Gmail Alerts
+# Face Recognition + ESP32 MQTT Servo Control + Gmail Alerts
 
-A project that runs face recognition on a Raspberry Pi using a USB webcam, sends MQTT commands to an ESP32 to control a servo (or blink an LED), and sends Gmail alerts with snapshot attachments when an authorized face is detected.
+This project integrates **Computer Vision**, **IoT**, and **Cloud Email Alerts** into a complete end‑to‑end system. A Raspberry Pi performs face recognition using an attached USB webcam, and upon detecting known users, triggers different hardware actions through an ESP32 over MQTT. The Pi also sends Gmail alerts with an attached snapshot for every authorized detection.
 
-## Features
+This README corresponds to your current repository structure:
 
-- Multi-user face recognition (train faces using `image_capture.py` and `model_training.py`).
-- Per-user actions: different users can trigger different hardware behaviors (e.g. 180° servo, 360° spin approximation).
-- MQTT-based command relay via a broker (tested with `test.mosquitto.org`).
-- ESP32 sketch supports JSON payloads: `{"token": "...", "angle":180}`, `{"token":"...","spin":true}`, `{"token":"...","led":true}`.
-- Email alerts with JPEG attachment using Gmail (SMTP SSL + App Password).
-- Uses `paho-mqtt`, `face-recognition`, and `opencv-python`.
-
----
-
-## Repo structure
-
-
-
-face-recognition-esp-mqtt/
+```
+Complete-IOT-Research-Project/
 ├── esp32/
-│ └── esp_unified.ino
+│   └── esp_unified.ino
+├── project_growth_documentation/
+│   └── (PDFs, reports, documentation)
 ├── raspberry-pi/
-│ ├── facial_recognition_hardware.py
-│ ├── facial_recognition.py
-│ ├── model_training.py
-│ ├── image_capture.py
-│ └── requirements.txt
-├── docs/
-│ └── project-report.md
-├── dataset_template/
-├── .gitignore
-├── LICENSE
+│   ├── facial_recognition_hardware.py
+│   ├── facial_recognition.py
+│   ├── image_capture.py
+│   ├── model_training.py
+│   ├── requirements.txt
+│   └── dataset_template/ (if added later)
 ├── README.md
-└── CONTRIBUTING.md
-
+```
 
 ---
 
-## Quick start (Raspberry Pi)
+##  Project Summary
 
-1. Create and activate a virtual environment:
-   ```bash
-   python3 -m venv ~/face_rec
-   source ~/face_rec/bin/activate
-   
+This system:
 
-Install packages:
+* Detects faces using the **face_recognition** library on a Raspberry Pi.
+* Uses an LG USB webcam for live video feed.
+* Recognizes multiple users (e.g., *Aman Vajpayee*, *Jake Paul*).
+* Triggers different ESP32 motor actions depending on who was detected:
 
-pip install --upgrade pip
+  * **Aman Vajpayee → Servo rotates 180°**
+  * **Jake Paul → 360° spin (two 180° sweeps)**
+* Sends **MQTT messages** to an ESP32 subscribed to: `face_control/esp32/rotate`.
+* ESP32 receives JSON payloads and controls a **SG90 servo motor**.
+* Sends **Gmail alerts with snapshot attachments** whenever an authorized face appears.
+* Implements cooldown to avoid repeated triggers.
+
+---
+
+##  Face Recognition Overview
+
+The Pi runs:
+
+* `image_capture.py` → Captures face images and organizes them into dataset folders.
+* `model_training.py` → Converts captured images into `encodings.pickle` using face_recognition.
+* `facial_recognition_hardware.py` → Main script:
+
+  * Reads frames from webcam
+  * Detects & identifies users
+  * Sends MQTT commands to ESP
+  * Sends Gmail alerts
+
+### Supported Users and Actions
+
+Defined inside `facial_recognition_hardware.py`:
+
+```python
+authorized_actions = {
+    "Aman Vajpayee": "servo180",
+    "jake paul": "spin360"
+}
+```
+
+Each action maps to:
+
+* `servo180` → Publish `{ "angle": 180 }`
+* `spin360` → Publish `{ "spin": true }`
+
+---
+
+## 📡 MQTT Communication
+
+The Pi publishes JSON messages:
+
+```json
+{"token": "aman_face_access", "angle": 180}
+```
+
+```json
+{"token": "aman_face_access", "spin": true}
+```
+
+The ESP32 subscribes to:
+
+```
+face_control/esp32/rotate
+```
+
+The ESP32 code handles:
+
+* Angle rotations
+* 360° spin simulation
+* LED blinking (optional)
+
+MQTT broker used:
+
+```
+test.mosquitto.org:1883
+```
+
+---
+
+## ESP32 Functionality (esp32/esp_unified.ino)
+
+The ESP script:
+
+* Connects to WiFi
+* Connects to MQTT broker
+* Subscribes to the project topic
+* Parses JSON payloads using ArduinoJson
+* Confirms security token
+* Controls:
+
+  * **Servo on GPIO 13**
+  * Optional: **LED on GPIO 2**
+
+Supported payload fields:
+
+* `angle` → Servo rotation
+* `spin` → Perform two 180° sweeps
+* `led` → Blink LED
+
+---
+
+##  Email Alerts
+
+The Pi uses Gmail SMTP to send:
+
+* Authorized user name
+* Timestamp
+* Snapshot attachment (JPEG)
+
+Requires a **Gmail App Password**.
+
+---
+
+##  Running the Raspberry Pi System
+
+1. Activate the virtual environment:
+
+```bash
+source ~/face_rec/bin/activate
+```
+
+2. Install dependencies:
+
+```bash
 pip install -r raspberry-pi/requirements.txt
+```
 
+3. Train encodings:
 
-Prepare dataset:
-
-Use raspberry-pi/image_capture.py to capture images for each person.
-
-Place images in raspberry-pi/dataset/<person_name>/.
-
-Train encodings:
-
-source ~/face_rec/bin/activate
+```bash
 python3 raspberry-pi/model_training.py
+```
 
+4. Run face recognition system:
 
-This produces encodings.pickle in the working directory (do not commit it to git).
-
-Upload the ESP32 sketch (esp32/esp_unified.ino) to your ESP32 via Arduino IDE.
-
-Configure raspberry-pi/facial_recognition_hardware.py:
-
-Set the ENCODINGS_PATH to your encodings.pickle absolute path.
-
-Set MQTT broker, token, and Gmail credentials as environment variables or in a .env (recommended).
-
-Run the main script:
-
-source ~/face_rec/bin/activate
+```bash
 python3 raspberry-pi/facial_recognition_hardware.py
-
-ESP32
-
-Libraries required: PubSubClient, ArduinoJson, ESP32Servo
-
-The sketch subscribes to face_control/esp32/rotate and checks for a shared token.
-
-Supported JSON:
-
-{"token":"<token>","angle":180} → rotate servo to angle
-
-{"token":"<token>","spin":true} → perform two 180° sweeps (SG90 approximation)
-
-{"token":"<token>","led":true,"times":3,"ms":200} → blink LED
-
-Security & privacy
-
-Do not commit encodings.pickle or real face images. They are personal data.
-
-Use Gmail App Passwords for SMTP and store secrets in environment variables.
-
-Use a secure MQTT broker (TLS + auth) for production.
-
-What to include in the repo and what not to include
-
-Include:
-
-Source code (ESP & Pi scripts)
-
-docs/project-report.md
-
-Example dataset structure (no images)
-
-requirements.txt, README.md, LICENSE
-
-Do not include:
-
-encodings.pickle (models containing user faces)
-
-Any real CCTV footage, raw images of people, or private credentials
-
-License
-
-This repository is released under the MIT License. See LICENSE for details.
-
+```
 
 ---
 
-# 3 — Supporting files
+##  Webcam Notes (LG Smart Cam)
 
-### `.gitignore` (paste at repo root)
+If the webcam produces:
 
-Python
+```
+select() timeout
+```
 
-pycache/
-*.pyc
-*.pyo
-*.pyd
-env/
-venv/
-face_rec/
-*.egg-info/
-dist/
-build/
+Fixes:
 
-Virtual envs
+* Replug into USB 3.0 port (blue)
+* Reboot Raspberry Pi
+* Force MJPG mode if needed
+* Ensure correct device `/dev/video0`
 
-.env
-.envrc
-.venv
-face_rec/
+---
 
-OS
+##  Dataset Structure (Do NOT upload real images)
 
-.DS_Store
-thumbs.db
-
-Jupyter
-
-.ipynb_checkpoints
-
-VSCode
-
-.vscode/
-
-Python dependencies
-
-pip-log.txt
-pip-delete-this-directory.txt
-
-Large / sensitive
-
-encodings.pickle
+```
 dataset/
-*.db
-*.sqlite
+ ├── aman vajpayee/
+ └── jake paul/
+```
 
-Arduino / build
+Each folder contains multiple images captured from the webcam.
 
-*.bin
-*.elf
-*.hex
+This folder should remain **private**.
 
+---
 
-### `CONTRIBUTING.md`
-```markdown
-# Contributing
+##  Security & Privacy
 
-Thanks for your interest. If you want to contribute:
+Do NOT commit:
 
-- Fork the repository and create feature branches.
-- Run `black` (or your formatting tool) and ensure code passes basic linting.
-- Do not add any images with faces to the repo.
-- Use PRs with descriptive titles and link to issues.
+* Gmail password
+* `encodings.pickle` (contains facial embeddings)
+* Real face images
+* `.env` or secret tokens
 
-requirements.txt (put under raspberry-pi/)
-opencv-python
-face-recognition
-imutils
-paho-mqtt
-numpy
+Use `.gitignore` to prevent accidental uploads.
 
+---
 
-Note: face-recognition may require system packages (build-essential, cmake, libjpeg-dev, etc.) on Raspberry Pi.
+##  What This Project Demonstrates
 
-LICENSE (MIT)
-MIT License
+This is a full integrated IOT + AI system showing:
 
-Copyright (c) 2025 Aman Vajpayee
+* Edge AI (face detection)
+* MQTT communication
+* Microcontroller motor control
+* Cloud email alerts
+* Multi-user behavior mapping
+* Secure token verification
 
-Permission is hereby granted, free of charge, to any person obtaining a copy...
-[full MIT license text here]
+It is suitable for:
 
+* Academic submissions
+* IoT research work
+* Practical robotics demonstrations
+* Home automation
 
-(Use standard MIT text; replace copyright.)
+---
+
+##  Author
+
+**Aman Vajpayee**
+B.Tech CSE – NIIT University
+
+---
+
+# End of README.md
